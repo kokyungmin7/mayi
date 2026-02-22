@@ -134,7 +134,6 @@ class VLMAnalyzer:
             videos=videos,
             video_metadata=video_metadatas,
             return_tensors="pt",
-            do_resize=False,
             **video_kwargs,
         ).to(self._model.device)
 
