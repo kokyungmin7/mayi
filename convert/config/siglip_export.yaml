@@ -5,7 +5,7 @@ model:
   processor_fallback: "google/siglip-base-patch16-224"
 
 onnx:
-  opset_version: 17
+  opset_version: 18
   optimize: true
   dynamic_batch: true
   # Output will have dynamic axes for batch dimension

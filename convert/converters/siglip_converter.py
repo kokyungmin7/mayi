@@ -70,7 +70,7 @@ class SigLIPConverter:
     def convert_to_onnx(
         self,
         output_path: str | Path = "models/siglip2-reid.onnx",
-        opset_version: int = 17,
+        opset_version: int = 18,
         optimize: bool = True,
         dynamic_batch: bool = True,
     ) -> Path:

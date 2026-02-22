@@ -8,6 +8,7 @@ wheels/
 
 reference/
 output/
+models/converted/
 
 # ai
 .claude
