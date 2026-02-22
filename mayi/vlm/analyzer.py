@@ -180,8 +180,16 @@ class VLMAnalyzer:
                     ],
                 }
             ]
-            raw = self._run_inference(messages)
-            return _parse_json(raw)
+            raw_text = self._run_inference(messages)
+            logger.debug("[VLM] Raw response: %s", raw_text[:500])
+
+            result = _parse_json(raw_text)
+            if result is None:
+                logger.warning(
+                    "[VLM] Failed to parse JSON from response: %s",
+                    raw_text[:300],
+                )
+            return result
         except Exception:
             logger.exception("VLM metadata extraction failed")
             return None
@@ -202,18 +210,32 @@ class VLMAnalyzer:
 # JSON parsing helpers
 # ---------------------------------------------------------------------------
 
+def _strip_thinking(text: str) -> str:
+    """Remove <think>...</think> blocks from Thinking-variant model output."""
+    return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+
+
 def _parse_json(text: str) -> dict | None:
     """Best-effort extraction of a JSON object from VLM text output."""
+    text = _strip_thinking(text)
+
     try:
         return json.loads(text)
     except json.JSONDecodeError:
         pass
 
-    # Strip markdown code fences
     text = re.sub(r"```json\s*", "", text)
     text = re.sub(r"```\s*", "", text)
 
-    match = re.search(r"\{[^{}]*\}", text, re.DOTALL)
+    match = re.search(r"\{[^}]*\}", text, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group())
+        except json.JSONDecodeError:
+            pass
+
+    # Nested JSON (e.g. "accessories": [...])
+    match = re.search(r"\{.*\}", text, re.DOTALL)
     if match:
         try:
             return json.loads(match.group())

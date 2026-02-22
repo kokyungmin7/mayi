@@ -652,6 +652,12 @@ class TrackManager:
                     "[VLM] Metadata extracted for %s: %s",
                     global_id, raw,
                 )
+            else:
+                logger.warning(
+                    "[VLM] Metadata extraction returned None for %s "
+                    "(JSON parsing failed)",
+                    global_id,
+                )
         except Exception:
             logger.exception(
                 "[VLM] Metadata extraction failed for %s", global_id,
