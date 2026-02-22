@@ -16,6 +16,9 @@ output/
 # mac
 .DS_Store
 
+# temp
+convert/
+
 # Created by https://www.toptal.com/developers/gitignore/api/python,venv,images,video
 # Edit at https://www.toptal.com/developers/gitignore?templates=python,venv,images,video
 
