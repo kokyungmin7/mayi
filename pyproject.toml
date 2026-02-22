@@ -33,3 +33,8 @@ conversion = [
 [project.scripts]
 mayi = "main:main"
 mayi-convert = "convert.cli:cli"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["mayi*", "convert*"]
+exclude = ["data*", "models*", "config*", "output*", "reference*"]
