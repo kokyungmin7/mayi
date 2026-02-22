@@ -23,7 +23,7 @@ Analyze this person's appearance. Return ONLY a JSON object with these fields:
   "hair": "short/long/tied/bald/etc",
   "description": "one-line overall appearance description"
 }
-Do not output anything except the JSON object."""
+Do not output anything except the JSON object. /no_think"""
 
 
 class VLMAnalyzer:
