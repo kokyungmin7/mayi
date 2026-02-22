@@ -9,6 +9,11 @@ wheels/
 reference/
 output/
 
+# ai
+.claude
+.cursor
+
+# mac
 .DS_Store
 
 # Created by https://www.toptal.com/developers/gitignore/api/python,venv,images,video
