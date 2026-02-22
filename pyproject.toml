@@ -7,27 +7,29 @@ requires-python = ">=3.10"
 dependencies = [
     "ultralytics",
     "lap>=0.5.12",
-    "transformers>=5.2.0",
+    "transformers>=5.2.0",  # VLM requirement
     "pyyaml",
     "Pillow",
-    "qwen-vl-utils",
-    "bitsandbytes",
-    "accelerate",
+    "qwen-vl-utils",        # VLM core feature
+    "bitsandbytes",         # VLM core feature
+    "accelerate",           # VLM core feature
 ]
 
 [project.optional-dependencies]
+# Model conversion (ONNX/TensorRT)
+conversion = [
+    "onnx>=1.17.0",
+    "onnxruntime>=1.20.0",
+    "click>=8.0.0",
+    "pyyaml",
+]
+
+# TensorRT GPU support
 tensorrt = [
     "onnx>=1.17.0",
     "onnxruntime-gpu>=1.20.0",
     "tensorrt>=10.0.0",
     "pycuda>=2024.1",
-]
-conversion = [
-    "onnx>=1.17.0",
-    "onnxruntime>=1.20.0",
-    "optimum[onnxruntime]>=1.22.0",
-    "click>=8.0.0",
-    "pyyaml",
 ]
 
 [project.scripts]
