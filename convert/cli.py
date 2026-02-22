@@ -140,12 +140,68 @@ def convert(model, format, config, output_dir, model_path):
             click.echo(f"✓ TensorRT engine saved to: {result_path}")
 
     elif model == "qwen":
-        click.echo(
-            "Error: Qwen3-VL conversion is not yet implemented.\n"
-            "Please continue using the PyTorch version.",
-            err=True,
-        )
-        sys.exit(1)
+        from convert.converters import QwenConverter
+
+        converter = QwenConverter(use_fp16=True)
+
+        if format in ["onnx", "both"]:
+            logger.info("Converting Qwen3-VL to ONNX (vision encoder + text decoder)...")
+
+            # Export vision encoder
+            vision_path = output_dir / "qwen3vl-vision-encoder.onnx"
+            onnx_config = config_data.get("onnx", {})
+            vision_result = converter.convert_vision_encoder_to_onnx(
+                output_path=vision_path,
+                opset_version=onnx_config.get("opset_version", 18),
+                optimize=onnx_config.get("optimize", True),
+            )
+            click.echo(f"✓ Vision encoder saved to: {vision_result}")
+
+            # Export text decoder
+            decoder_path = output_dir / "qwen3vl-text-decoder.onnx"
+            decoder_result = converter.convert_text_decoder_to_onnx(
+                output_path=decoder_path,
+                opset_version=onnx_config.get("opset_version", 18),
+                max_seq_length=onnx_config.get("max_seq_length", 512),
+            )
+            click.echo(f"✓ Text decoder saved to: {decoder_result}")
+
+        if format in ["tensorrt", "both"]:
+            logger.info("Converting Qwen3-VL to TensorRT...")
+
+            # Need ONNX models first
+            if format == "tensorrt":
+                vision_onnx = output_dir / "qwen3vl-vision-encoder-optimized.onnx"
+                if not vision_onnx.exists():
+                    vision_onnx = output_dir / "qwen3vl-vision-encoder.onnx"
+                decoder_onnx = output_dir / "qwen3vl-text-decoder.onnx"
+
+                if not vision_onnx.exists() or not decoder_onnx.exists():
+                    click.echo(
+                        "Error: ONNX models not found. Convert to ONNX first.",
+                        err=True,
+                    )
+                    sys.exit(1)
+            else:
+                # Format is "both", use the ONNX we just created
+                vision_onnx = vision_result
+                decoder_onnx = decoder_result
+
+            # Convert to TensorRT
+            vision_engine_path = output_dir / "qwen3vl-vision-encoder.engine"
+            decoder_engine_path = output_dir / "qwen3vl-text-decoder.engine"
+            trt_config = config_data.get("tensorrt", {})
+
+            vision_engine, decoder_engine = converter.convert_to_tensorrt(
+                vision_encoder_path=vision_onnx,
+                text_decoder_path=decoder_onnx,
+                vision_output_path=vision_engine_path,
+                decoder_output_path=decoder_engine_path,
+                fp16=trt_config.get("fp16", True),
+                int8=trt_config.get("int8", False),
+            )
+            click.echo(f"✓ Vision encoder TensorRT engine saved to: {vision_engine}")
+            click.echo(f"✓ Text decoder TensorRT engine saved to: {decoder_engine}")
 
 
 @cli.command()

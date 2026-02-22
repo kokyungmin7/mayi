@@ -1,33 +1,53 @@
-# Qwen3-VL Model Export Configuration (Placeholder)
-
-# WARNING: Qwen3-VL conversion is currently not implemented.
-# This configuration file is a placeholder for future implementation.
+# Qwen3-VL Model Export Configuration
 
 model:
   name: "Qwen/Qwen3-VL-8B-Thinking"
-  quantization: "4bit"  # Already uses 4-bit quantization
+  use_fp16: true  # Use FP16 to reduce memory (16GB instead of 32GB)
 
-# Reasons for deferring Qwen3-VL conversion:
-# 1. Large model size (8B parameters)
-# 2. Complex multi-modal architecture (vision + language)
-# 3. Already uses efficient 4-bit quantization
-# 4. Infrequent usage (VLM analysis is not real-time)
-# 5. Conversion would require:
-#    - ONNX export with sequence length constraints
-#    - INT8 quantization for TensorRT
-#    - May need to split encoder-decoder components
+onnx:
+  opset_version: 18  # Same as SigLIP (latest stable)
+  optimize: true
+  dynamic_batch: true
+  max_seq_length: 512  # Limit for initial implementation
 
-# Recommendation: Keep Qwen3-VL in PyTorch for now.
-# The performance bottleneck is in Re-ID (called per-person per-frame),
-# not in VLM (called infrequently for verification).
+  # Split export strategy
+  export_vision_encoder: true
+  export_text_decoder: true
 
-# If conversion becomes necessary in the future:
-# onnx:
-#   opset_version: 17
-#   max_seq_length: 512
-#   split_components: true
-#
-# tensorrt:
-#   int8: true
-#   calibration_data: "path/to/calibration/images"
-#   workspace_gb: 8
+  dynamic_axes:
+    # Vision inputs
+    pixel_values:
+      0: batch_size
+      2: height
+      3: width
+    # Text inputs
+    input_ids:
+      0: batch_size
+      1: sequence_length
+    attention_mask:
+      0: batch_size
+      1: sequence_length
+
+tensorrt:
+  fp16: true
+  int8: true  # Enable INT8 for 8B model
+  workspace_gb: 8  # Larger workspace for big model
+
+  # Batch configuration
+  min_batch: 1
+  opt_batch: 1
+  max_batch: 4  # Smaller max batch due to model size
+
+validation:
+  num_test_samples: 5  # Fewer samples (generation is slow)
+  max_new_tokens: 128  # Limit for testing
+
+benchmark:
+  warmup_iterations: 5
+  benchmark_iterations: 20
+  batch_sizes: [1, 2]  # Limited due to model size
+
+# Expected Performance (NVIDIA GPU):
+# - PyTorch (4-bit): ~2-3s per image (baseline)
+# - ONNX (FP16): ~3-4s per image (dequantization overhead)
+# - TensorRT (INT8): ~1.5-2s per image (best case)
