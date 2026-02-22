@@ -155,9 +155,6 @@ class PersonMetadata:
     bottom_color: str | None = None
     top_type: str | None = None
     bottom_type: str | None = None
-    accessories: list[str] = field(default_factory=list)
-    hair: str | None = None
-    description: str | None = None
 
 
 # ---------------------------------------------------------------------------

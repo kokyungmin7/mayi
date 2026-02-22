@@ -26,7 +26,10 @@ tracking:
   consistency_threshold: 0.5
 
 reid:
+  backend: "pytorch"  # Options: pytorch, onnx, tensorrt
   model: "MarketaJu/siglip2-person-description-reid"
+  onnx_model_path: "models/converted/siglip2-reid-optimized.onnx"
+  tensorrt_engine_path: "models/converted/siglip2-reid.engine"
   similarity_threshold: 0.7
   confidence_threshold: 0.85
   device: null  # auto-detect (cuda > mps > cpu)
@@ -42,7 +45,7 @@ vlm:
   model_path: null  # local path override (e.g. models/Qwen3-VL-8B-Thinking)
   max_new_tokens: 256
   max_retries: 2
-  metadata_fields: [gender, top_color, bottom_color, top_type, bottom_type, accessories, hair]
+  metadata_fields: [gender, top_color, bottom_color, top_type, bottom_type]
   verification:
     metadata_filter_fields: [gender, top_color, bottom_color]
     max_candidates: 5

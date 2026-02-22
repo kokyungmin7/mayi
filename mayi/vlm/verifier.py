@@ -15,7 +15,7 @@ Compare these two person images. Are they the same person?
 Consider: clothing, body shape, hair, accessories.
 Return ONLY a JSON object:
 {"same_person": true/false, "confidence": 0.0-1.0, "reason": "brief explanation"}
-Do not output anything except the JSON object. /no_think"""
+Output ONLY JSON. No explanation."""
 
 
 class VLMVerifier:

@@ -12,18 +12,8 @@ from PIL import Image
 logger = logging.getLogger(__name__)
 
 _METADATA_PROMPT = """\
-Analyze this person's appearance. Return ONLY a JSON object with these fields:
-{
-  "gender": "male" or "female" or "unknown",
-  "top_color": "main color of upper clothing",
-  "top_type": "hoodie/jacket/tshirt/coat/shirt/vest/etc",
-  "bottom_color": "main color of lower clothing",
-  "bottom_type": "pants/shorts/skirt/etc",
-  "accessories": ["hat", "bag", "glasses", ...],
-  "hair": "short/long/tied/bald/etc",
-  "description": "one-line overall appearance description"
-}
-Do not output anything except the JSON object. /no_think"""
+Output ONLY JSON. No explanation.
+{"gender":"male/female","top_color":"?","top_type":"?","bottom_color":"?","bottom_type":"?"}"""
 
 
 class VLMAnalyzer:
@@ -114,6 +104,7 @@ class VLMAnalyzer:
 
         text = self._processor.apply_chat_template(
             messages, tokenize=False, add_generation_prompt=True,
+            enable_thinking=False,
         )
 
         images, videos, video_kwargs = process_vision_info(

@@ -643,9 +643,6 @@ class TrackManager:
                     bottom_color=raw.get("bottom_color"),
                     top_type=raw.get("top_type"),
                     bottom_type=raw.get("bottom_type"),
-                    accessories=raw.get("accessories", []),
-                    hair=raw.get("hair"),
-                    description=raw.get("description"),
                 )
                 self._anchor_bank.set_metadata(global_id, metadata)
                 logger.info(
