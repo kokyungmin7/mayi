@@ -1,0 +1,33 @@
+# Qwen3-VL Model Export Configuration (Placeholder)
+
+# WARNING: Qwen3-VL conversion is currently not implemented.
+# This configuration file is a placeholder for future implementation.
+
+model:
+  name: "Qwen/Qwen3-VL-8B-Thinking"
+  quantization: "4bit"  # Already uses 4-bit quantization
+
+# Reasons for deferring Qwen3-VL conversion:
+# 1. Large model size (8B parameters)
+# 2. Complex multi-modal architecture (vision + language)
+# 3. Already uses efficient 4-bit quantization
+# 4. Infrequent usage (VLM analysis is not real-time)
+# 5. Conversion would require:
+#    - ONNX export with sequence length constraints
+#    - INT8 quantization for TensorRT
+#    - May need to split encoder-decoder components
+
+# Recommendation: Keep Qwen3-VL in PyTorch for now.
+# The performance bottleneck is in Re-ID (called per-person per-frame),
+# not in VLM (called infrequently for verification).
+
+# If conversion becomes necessary in the future:
+# onnx:
+#   opset_version: 17
+#   max_seq_length: 512
+#   split_components: true
+#
+# tensorrt:
+#   int8: true
+#   calibration_data: "path/to/calibration/images"
+#   workspace_gb: 8

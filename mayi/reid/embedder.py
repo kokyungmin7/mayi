@@ -140,7 +140,74 @@ class ReIDEmbedder:
         return "cpu"
 
     @classmethod
-    def from_config(cls, config: dict) -> ReIDEmbedder:
+    def from_config(cls, config: dict) -> Embedder:
+        """Create embedder from configuration with backend selection.
+
+        Supports PyTorch, ONNX, and TensorRT backends based on config.
+
+        Args:
+            config: Configuration dictionary with backend and model paths
+
+        Returns:
+            Embedder instance (ReIDEmbedder, ONNXReIDEmbedder, or TensorRTReIDEmbedder)
+        """
+        backend = config.get("backend", "pytorch")
+
+        if backend == "onnx":
+            # Lazy import to avoid requiring onnxruntime for PyTorch users
+            try:
+                from convert.runtime.onnx_embedder import ONNXReIDEmbedder
+
+                logger.info("Using ONNX Runtime backend for Re-ID")
+                return ONNXReIDEmbedder(
+                    onnx_path=config["onnx_model_path"],
+                    device=config.get("device", "cuda"),
+                )
+            except ImportError:
+                logger.warning(
+                    "ONNX Runtime not available, falling back to PyTorch. "
+                    "Install with: pip install onnxruntime or onnxruntime-gpu"
+                )
+                backend = "pytorch"
+            except KeyError:
+                logger.warning(
+                    "onnx_model_path not specified in config, falling back to PyTorch"
+                )
+                backend = "pytorch"
+
+        elif backend == "tensorrt":
+            # Lazy import to avoid requiring TensorRT for PyTorch users
+            try:
+                from convert.runtime.tensorrt_embedder import TensorRTReIDEmbedder
+
+                logger.info("Using TensorRT backend for Re-ID")
+                return TensorRTReIDEmbedder(
+                    engine_path=config["tensorrt_engine_path"],
+                    max_batch_size=config.get("max_batch_size", 8),
+                )
+            except ImportError:
+                logger.warning(
+                    "TensorRT not available, falling back to PyTorch. "
+                    "Install with: pip install tensorrt pycuda"
+                )
+                backend = "pytorch"
+            except KeyError:
+                logger.warning(
+                    "tensorrt_engine_path not specified in config, falling back to PyTorch"
+                )
+                backend = "pytorch"
+
+        # Default to PyTorch
+        if backend == "pytorch":
+            logger.info("Using PyTorch backend for Re-ID")
+            return cls(
+                model_name=config.get(
+                    "model", "MarketaJu/siglip2-person-description-reid",
+                ),
+                device=config.get("device"),
+            )
+
+        # Fallback (shouldn't reach here)
         return cls(
             model_name=config.get(
                 "model", "MarketaJu/siglip2-person-description-reid",

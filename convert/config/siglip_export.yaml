@@ -1,0 +1,37 @@
+# SigLIP2 Re-ID Model Export Configuration
+
+model:
+  name: "MarketaJu/siglip2-person-description-reid"
+  processor_fallback: "google/siglip-base-patch16-224"
+
+onnx:
+  opset_version: 17
+  optimize: true
+  dynamic_batch: true
+  # Output will have dynamic axes for batch dimension
+  # pixel_values: {0: 'batch_size'} - Input tensor
+  # image_embeds: {0: 'batch_size'} - Output tensor
+
+tensorrt:
+  fp16: true  # Enable FP16 precision for 2-3x speedup
+  int8: false  # INT8 requires calibration (advanced)
+  workspace_gb: 4  # GPU workspace memory
+  # Dynamic batching configuration
+  min_batch: 1
+  opt_batch: 1  # Optimize for single-image inference
+  max_batch: 8
+
+validation:
+  cosine_similarity_threshold: 0.99  # Embeddings should be nearly identical
+  mse_threshold: 0.0001  # Maximum mean squared error
+  num_test_images: 50
+
+benchmark:
+  warmup_iterations: 10
+  benchmark_iterations: 100
+  batch_sizes: [1, 2, 4, 8]
+
+# Expected Performance (relative to PyTorch on NVIDIA GPU):
+# - ONNX Runtime: 1.5-2x faster
+# - TensorRT FP16: 3-5x faster
+# - TensorRT INT8: 5-8x faster (requires calibration)

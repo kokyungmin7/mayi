@@ -16,7 +16,20 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-tensorrt = ["onnx", "onnxruntime-gpu"]
+tensorrt = [
+    "onnx>=1.17.0",
+    "onnxruntime-gpu>=1.20.0",
+    "tensorrt>=10.0.0",
+    "pycuda>=2024.1",
+]
+conversion = [
+    "onnx>=1.17.0",
+    "onnxruntime>=1.20.0",
+    "optimum[onnxruntime]>=1.22.0",
+    "click>=8.0.0",
+    "pyyaml",
+]
 
 [project.scripts]
 mayi = "main:main"
+mayi-convert = "convert.cli:cli"

@@ -1,0 +1,33 @@
+# YOLO26-Pose Model Export Configuration
+
+model:
+  path: "models/yolo26n-pose.pt"
+
+onnx:
+  imgsz: 640  # Input image size
+  opset_version: 17
+  simplify: true  # Simplify ONNX graph
+  dynamic: true  # Enable dynamic batch and image size
+
+tensorrt:
+  imgsz: 640
+  half: true  # Enable FP16 precision
+  workspace_gb: 4
+  dynamic: true  # Enable dynamic batching
+
+validation:
+  conf_threshold: 0.25  # Confidence threshold for detections
+  iou_threshold: 0.45  # IoU threshold for NMS
+  detection_match_threshold: 0.8  # Minimum match rate to pass
+
+benchmark:
+  warmup_iterations: 10
+  benchmark_iterations: 100
+
+# Note: The BotSORT tracker will remain in Python
+# Only detection and pose estimation are converted
+# Use the converted model with custom inference code if needed
+
+# Expected Performance (relative to PyTorch on NVIDIA GPU):
+# - ONNX Runtime: 1.3-1.8x faster
+# - TensorRT FP16: 2-3x faster
