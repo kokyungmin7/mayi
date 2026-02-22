@@ -17,7 +17,8 @@ output/
 .DS_Store
 
 # temp
-convert/
+CONVERSION_CHANGELOG.md
+*.md
 
 # Created by https://www.toptal.com/developers/gitignore/api/python,venv,images,video
 # Edit at https://www.toptal.com/developers/gitignore?templates=python,venv,images,video
