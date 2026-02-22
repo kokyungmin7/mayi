@@ -1,0 +1,22 @@
+[project]
+name = "mayi"
+version = "0.1.0"
+description = "Person Re-ID + VLM verification pipeline for offline space analysis"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "ultralytics",
+    "lap>=0.5.12",
+    "transformers>=5.2.0",
+    "pyyaml",
+    "Pillow",
+    "qwen-vl-utils",
+    "bitsandbytes",
+    "accelerate",
+]
+
+[project.optional-dependencies]
+tensorrt = ["onnx", "onnxruntime-gpu"]
+
+[project.scripts]
+mayi = "main:main"

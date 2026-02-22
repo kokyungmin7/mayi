@@ -1,0 +1,53 @@
+detection:
+  model: yolo26n-pose
+  model_path: "models/yolo26n-pose.pt"
+  confidence: 0.5
+  tracker: botsort
+
+conditions:
+  enabled: [bbox_size, aspect_ratio, pose_completeness]
+  bbox_size:
+    min_width: 64
+    min_height: 128
+    priority: 0
+  aspect_ratio:
+    min_ratio: 0.25
+    max_ratio: 0.65
+    priority: 1
+  pose_completeness:
+    required_keypoints: [left_knee, right_knee, left_ankle, right_ankle]
+    min_visible: 3
+    priority: 2
+
+tracking:
+  max_pending_frames: 90
+  max_lost_frames: 150
+  consistency_check_interval: 60
+  consistency_threshold: 0.5
+
+reid:
+  model: "MarketaJu/siglip2-person-description-reid"
+  similarity_threshold: 0.7
+  confidence_threshold: 0.85
+  device: null  # auto-detect (cuda > mps > cpu)
+  failure_detectors:
+    enabled: [embedding_collapse, speed_jump]
+    embedding_collapse:
+      confidence_threshold: 0.85
+    speed_jump:
+      max_speed_px_per_frame: 200
+
+vlm:
+  model: "Qwen/Qwen3-VL-8B-Thinking"
+  model_path: null  # local path override (e.g. models/Qwen3-VL-8B-Thinking)
+  max_new_tokens: 256
+  max_retries: 2
+  metadata_fields: [gender, top_color, bottom_color, top_type, bottom_type, accessories, hair]
+  verification:
+    metadata_filter_fields: [gender, top_color, bottom_color]
+    max_candidates: 5
+
+output:
+  draw_bbox: true
+  draw_id: true
+  draw_status: true
