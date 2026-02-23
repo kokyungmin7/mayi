@@ -84,8 +84,12 @@ def main():
         logger.info(f"\nFound grid_thw!")
         logger.info(f"  Value: {inputs['grid_thw']}")
         logger.info(f"  Shape: {inputs['grid_thw'].shape}")
+    elif "image_grid_thw" in inputs:
+        logger.info(f"\nFound image_grid_thw!")
+        logger.info(f"  Value: {inputs['image_grid_thw'].tolist()}")
+        logger.info(f"  Shape: {inputs['image_grid_thw'].shape}")
     else:
-        logger.info(f"\nNo 'grid_thw' in processor output")
+        logger.info(f"\nNo 'grid_thw' or 'image_grid_thw' in processor output")
         logger.info(f"  Available keys: {list(inputs.keys())}")
 
     # Check pixel_values
