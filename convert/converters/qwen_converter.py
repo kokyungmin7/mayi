@@ -156,7 +156,7 @@ class QwenConverter:
             def __init__(self, model):
                 super().__init__()
                 self.model = model
-                self.vision_model = model.visual  # Qwen3-VL vision component
+                self.vision_model = model.model.visual  # Qwen3-VL vision component
 
             def forward(self, pixel_values):
                 """Extract vision features from images."""
