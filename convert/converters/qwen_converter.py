@@ -221,6 +221,7 @@ class QwenConverter:
         }
 
         # Export to ONNX
+        # Note: Using dynamo=False for legacy exporter to handle dynamic grid_thw
         torch.onnx.export(
             wrapped_model,
             dummy_image,
@@ -231,6 +232,7 @@ class QwenConverter:
             input_names=["pixel_values"],
             output_names=["vision_embeds"],
             dynamic_axes=dynamic_axes,
+            dynamo=False,  # Use legacy TorchScript-based exporter
         )
 
         logger.info("Vision encoder ONNX export complete: %s", output_path)
