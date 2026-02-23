@@ -357,49 +357,50 @@ class QwenConverter:
     def convert_to_tensorrt(
         self,
         vision_encoder_path: str | Path,
-        text_decoder_path: str | Path,
         vision_output_path: str | Path = "models/qwen3vl-vision-encoder.engine",
-        decoder_output_path: str | Path = "models/qwen3vl-text-decoder.engine",
         fp16: bool = True,
-        int8: bool = False,
+        workspace_gb: int = 4,
+        min_batch: int = 1,
+        opt_batch: int = 1,
+        max_batch: int = 8,
         **kwargs,
-    ) -> tuple[Path, Path]:
-        """Convert Qwen3-VL ONNX models to TensorRT.
+    ) -> Path:
+        """Convert Qwen3-VL Vision Encoder ONNX to TensorRT (L4 GPU optimized).
 
         Args:
             vision_encoder_path: Path to vision encoder ONNX
-            text_decoder_path: Path to text decoder ONNX
             vision_output_path: Path to save vision encoder TensorRT engine
-            decoder_output_path: Path to save text decoder TensorRT engine
-            fp16: Enable FP16 precision
-            int8: Enable INT8 quantization
+            fp16: Enable FP16 precision (recommended for L4 GPU)
+            workspace_gb: GPU workspace size in GB (L4 optimized: 4GB)
+            min_batch: Minimum batch size for dynamic batching
+            opt_batch: Optimal batch size for optimization
+            max_batch: Maximum batch size for dynamic batching
             **kwargs: Additional TensorRT conversion options
 
         Returns:
-            Tuple of (vision_engine_path, decoder_engine_path)
+            Path to TensorRT engine
         """
         vision_output_path = Path(vision_output_path)
-        decoder_output_path = Path(decoder_output_path)
 
-        logger.info("Converting vision encoder to TensorRT...")
+        logger.info("Converting Vision Encoder to TensorRT (L4 GPU optimized)...")
+        logger.info("  FP16: %s", fp16)
+        logger.info("  Workspace: %dGB", workspace_gb)
+        logger.info("  Dynamic batch: %d-%d (opt=%d)", min_batch, max_batch, opt_batch)
+
         vision_engine = convert_onnx_to_tensorrt(
             onnx_path=vision_encoder_path,
-            output_path=vision_output_path,
+            engine_path=vision_output_path,
             fp16=fp16,
-            int8=int8,
+            int8=False,  # INT8 requires calibration, not implemented yet
+            workspace_gb=workspace_gb,
+            min_batch=min_batch,
+            opt_batch=opt_batch,
+            max_batch=max_batch,
             **kwargs,
         )
 
-        logger.info("Converting text decoder to TensorRT...")
-        decoder_engine = convert_onnx_to_tensorrt(
-            onnx_path=text_decoder_path,
-            output_path=decoder_output_path,
-            fp16=fp16,
-            int8=int8,
-            **kwargs,
-        )
-
-        return vision_engine, decoder_engine
+        logger.info("✓ Vision Encoder TensorRT engine: %s", vision_engine)
+        return vision_engine
 
     def validate_conversion(
         self,

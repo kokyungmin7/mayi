@@ -182,41 +182,43 @@ def convert(model, format, config, output_dir, model_path, device):
             click.echo(f"✓ Text decoder saved to: {decoder_result}")
 
         if format in ["tensorrt", "both"]:
-            logger.info("Converting Qwen3-VL to TensorRT...")
+            logger.info("Converting Qwen3-VL Vision Encoder to TensorRT (L4 GPU optimized)...")
 
-            # Need ONNX models first
+            # Need vision encoder ONNX first
             if format == "tensorrt":
                 vision_onnx = output_dir / "qwen3vl-vision-encoder-optimized.onnx"
                 if not vision_onnx.exists():
                     vision_onnx = output_dir / "qwen3vl-vision-encoder.onnx"
-                decoder_onnx = output_dir / "qwen3vl-text-decoder.onnx"
+                if not vision_onnx.exists():
+                    vision_onnx = output_dir / "qwen3vl-vision-transformer-optimized.onnx"
+                if not vision_onnx.exists():
+                    vision_onnx = output_dir / "qwen3vl-vision-transformer.onnx"
 
-                if not vision_onnx.exists() or not decoder_onnx.exists():
+                if not vision_onnx.exists():
                     click.echo(
-                        "Error: ONNX models not found. Convert to ONNX first.",
+                        "Error: Vision encoder ONNX not found. Convert to ONNX first.",
                         err=True,
                     )
                     sys.exit(1)
             else:
                 # Format is "both", use the ONNX we just created
                 vision_onnx = vision_result
-                decoder_onnx = decoder_result
 
-            # Convert to TensorRT
+            # Convert vision encoder to TensorRT
             vision_engine_path = output_dir / "qwen3vl-vision-encoder.engine"
-            decoder_engine_path = output_dir / "qwen3vl-text-decoder.engine"
             trt_config = config_data.get("tensorrt", {})
 
-            vision_engine, decoder_engine = converter.convert_to_tensorrt(
+            vision_engine = converter.convert_to_tensorrt(
                 vision_encoder_path=vision_onnx,
-                text_decoder_path=decoder_onnx,
                 vision_output_path=vision_engine_path,
-                decoder_output_path=decoder_engine_path,
                 fp16=trt_config.get("fp16", True),
-                int8=trt_config.get("int8", False),
+                workspace_gb=trt_config.get("workspace_gb", 4),
+                min_batch=trt_config.get("min_batch", 1),
+                opt_batch=trt_config.get("opt_batch", 1),
+                max_batch=trt_config.get("max_batch", 8),
             )
             click.echo(f"✓ Vision encoder TensorRT engine saved to: {vision_engine}")
-            click.echo(f"✓ Text decoder TensorRT engine saved to: {decoder_engine}")
+            click.echo("  Note: Text decoder TensorRT conversion not implemented yet (Python processor + TensorRT vision encoder recommended)")
 
 
 @cli.command()

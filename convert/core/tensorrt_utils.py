@@ -17,10 +17,11 @@ def convert_onnx_to_tensorrt(
     min_batch: int = 1,
     opt_batch: int = 1,
     max_batch: int = 8,
-    input_name: str | None = None,
-    input_shape: tuple[int, ...] | None = None,
 ) -> Path:
     """Convert ONNX model to TensorRT engine.
+
+    Supports models with dynamic axes (e.g., variable num_patches for vision models).
+    Automatically detects all inputs and creates optimization profiles for dynamic shapes.
 
     Args:
         onnx_path: Path to ONNX model
@@ -31,8 +32,6 @@ def convert_onnx_to_tensorrt(
         min_batch: Minimum batch size for dynamic batching
         opt_batch: Optimal batch size for dynamic batching
         max_batch: Maximum batch size for dynamic batching
-        input_name: Input tensor name (auto-detected if None)
-        input_shape: Input shape excluding batch dim (auto-detected if None)
 
     Returns:
         Path to TensorRT engine
@@ -82,28 +81,56 @@ def convert_onnx_to_tensorrt(
         config.set_flag(trt.BuilderFlag.INT8)
         # Note: Calibration would be needed here for INT8
 
-    # Auto-detect input info if not provided
-    if input_name is None:
-        input_name = network.get_input(0).name
-    if input_shape is None:
-        input_shape = tuple(network.get_input(0).shape)[1:]
+    # Auto-detect all inputs and create optimization profile
+    num_inputs = network.num_inputs
+    logger.info(f"Detected {num_inputs} input(s)")
 
-    logger.info(
-        "Creating optimization profile: batch_size=[%d, %d, %d], shape=%s",
-        min_batch,
-        opt_batch,
-        max_batch,
-        input_shape,
-    )
-
-    # Create dynamic batch optimization profile
     profile = builder.create_optimization_profile()
-    profile.set_shape(
-        input_name,
-        min=(min_batch, *input_shape),
-        opt=(opt_batch, *input_shape),
-        max=(max_batch, *input_shape),
-    )
+
+    for i in range(num_inputs):
+        input_tensor = network.get_input(i)
+        input_name = input_tensor.name
+        input_shape = tuple(input_tensor.shape)
+
+        logger.info(f"  Input {i}: {input_name}, shape={input_shape}")
+
+        # Handle dynamic shapes
+        # For vision models: hidden_states has dynamic num_patches, grid_thw is fixed
+        has_dynamic_dim = any(dim == -1 for dim in input_shape)
+
+        if has_dynamic_dim:
+            # Replace -1 with actual batch/patch sizes
+            # Assume first dynamic dimension is num_patches or batch_size
+            min_shape = []
+            opt_shape = []
+            max_shape = []
+
+            for dim in input_shape:
+                if dim == -1:
+                    # Dynamic dimension: use provided batch sizes
+                    min_shape.append(min_batch)
+                    opt_shape.append(opt_batch)
+                    max_shape.append(max_batch)
+                else:
+                    # Fixed dimension
+                    min_shape.append(dim)
+                    opt_shape.append(dim)
+                    max_shape.append(dim)
+
+            min_shape = tuple(min_shape)
+            opt_shape = tuple(opt_shape)
+            max_shape = tuple(max_shape)
+
+            logger.info(
+                f"    Dynamic shape profile: min={min_shape}, opt={opt_shape}, max={max_shape}"
+            )
+
+            profile.set_shape(input_name, min=min_shape, opt=opt_shape, max=max_shape)
+        else:
+            # Fixed shape input (e.g., grid_thw [1, 3])
+            logger.info(f"    Fixed shape: {input_shape}")
+            profile.set_shape(input_name, min=input_shape, opt=input_shape, max=input_shape)
+
     config.add_optimization_profile(profile)
 
     # Build engine
