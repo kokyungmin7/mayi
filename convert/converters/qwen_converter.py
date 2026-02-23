@@ -97,23 +97,29 @@ class QwenConverter:
         dtype = torch.float16 if self.use_fp16 else torch.float32
 
         # Choose loading strategy based on device
+        # Note: Use "eager" attention for ONNX export compatibility
+        # ONNX exporter doesn't support GQA in scaled_dot_product_attention
         if self.device == "cuda" and torch.cuda.is_available():
             # Direct GPU loading - use device_map for memory efficiency
             logger.info("Using device_map='auto' for direct GPU loading")
+            logger.info("Using attn_implementation='eager' for ONNX export compatibility")
             self._model = AutoModelForImageTextToText.from_pretrained(
                 self.model_name,
                 trust_remote_code=True,
                 torch_dtype=dtype,
                 device_map="auto",
+                attn_implementation="eager",  # Disable SDPA for ONNX compatibility
             )
         else:
             # CPU loading - use low_cpu_mem_usage
             logger.info("Using low_cpu_mem_usage for CPU loading")
+            logger.info("Using attn_implementation='eager' for ONNX export compatibility")
             self._model = AutoModelForImageTextToText.from_pretrained(
                 self.model_name,
                 trust_remote_code=True,
                 torch_dtype=dtype,
                 low_cpu_mem_usage=True,
+                attn_implementation="eager",  # Disable SDPA for ONNX compatibility
             )
             self._model.to(self.device)
 
