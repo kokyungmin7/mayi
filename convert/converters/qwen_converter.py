@@ -28,26 +28,63 @@ class QwenConverter:
     def __init__(
         self,
         model_name: str = DEFAULT_MODEL,
-        device: str = "cpu",
+        device: str | None = None,
         use_fp16: bool = True,
     ) -> None:
         """Initialize converter.
 
         Args:
             model_name: HuggingFace model identifier
-            device: Device to load model on ("cpu", "cuda")
+            device: Device to load model on ("cpu", "cuda", or None for auto-detect)
             use_fp16: Use FP16 precision (recommended for memory efficiency)
         """
         self.model_name = model_name
-        self.device = device
+
+        # Auto-detect CUDA if not specified
+        if device is None:
+            if torch.cuda.is_available():
+                self.device = "cuda"
+                logger.info("CUDA detected, using GPU for model loading")
+            else:
+                self.device = "cpu"
+                logger.warning("No CUDA available, using CPU (may require >20GB RAM)")
+        else:
+            self.device = device
+
         self.use_fp16 = use_fp16
         self._model = None
         self._processor = None
+
+    def _check_gpu_memory(self):
+        """Check if GPU has sufficient memory for model loading."""
+        if self.device == "cuda" and torch.cuda.is_available():
+            total_memory = torch.cuda.get_device_properties(0).total_memory / 1024**3
+            free_memory = (
+                torch.cuda.get_device_properties(0).total_memory
+                - torch.cuda.memory_allocated(0)
+            ) / 1024**3
+
+            required_memory = 16 if self.use_fp16 else 32
+
+            logger.info(
+                f"GPU Memory: {free_memory:.1f}GB free / {total_memory:.1f}GB total"
+            )
+
+            if free_memory < required_memory:
+                logger.warning(
+                    f"GPU may not have enough memory! "
+                    f"Required: ~{required_memory}GB, Available: {free_memory:.1f}GB"
+                )
+            else:
+                logger.info(f"✓ GPU has sufficient memory ({free_memory:.1f}GB >= {required_memory}GB)")
 
     def _load_model(self, disable_quantization: bool = True):
         """Load model without 4-bit quantization for ONNX export."""
         if self._model is not None:
             return
+
+        # Check GPU memory before loading
+        self._check_gpu_memory()
 
         logger.info(
             "Loading Qwen3-VL model '%s' on %s (FP16=%s, no quantization)...",
@@ -58,13 +95,28 @@ class QwenConverter:
 
         # Load without BitsAndBytes quantization
         dtype = torch.float16 if self.use_fp16 else torch.float32
-        self._model = AutoModelForImageTextToText.from_pretrained(
-            self.model_name,
-            trust_remote_code=True,
-            torch_dtype=dtype,
-            low_cpu_mem_usage=True,
-        )
-        self._model.to(self.device)
+
+        # Choose loading strategy based on device
+        if self.device == "cuda" and torch.cuda.is_available():
+            # Direct GPU loading - use device_map for memory efficiency
+            logger.info("Using device_map='auto' for direct GPU loading")
+            self._model = AutoModelForImageTextToText.from_pretrained(
+                self.model_name,
+                trust_remote_code=True,
+                torch_dtype=dtype,
+                device_map="auto",
+            )
+        else:
+            # CPU loading - use low_cpu_mem_usage
+            logger.info("Using low_cpu_mem_usage for CPU loading")
+            self._model = AutoModelForImageTextToText.from_pretrained(
+                self.model_name,
+                trust_remote_code=True,
+                torch_dtype=dtype,
+                low_cpu_mem_usage=True,
+            )
+            self._model.to(self.device)
+
         self._model.eval()
 
         # Load processor
@@ -73,7 +125,7 @@ class QwenConverter:
             trust_remote_code=True,
         )
 
-        logger.info("Qwen3-VL loaded successfully (no quantization)")
+        logger.info("Qwen3-VL loaded successfully on %s", self.device)
 
     def convert_vision_encoder_to_onnx(
         self,
@@ -379,6 +431,47 @@ class QwenConverter:
                 })
 
         return results
+
+    def quantize_onnx_model(
+        self,
+        onnx_path: str | Path,
+        output_path: str | Path | None = None,
+        quantization_mode: str = "dynamic",
+    ) -> Path:
+        """Quantize ONNX model to reduce size and memory.
+
+        This is an alternative to 4-bit quantization for ONNX models.
+        Quantizes AFTER export, so doesn't help with export memory requirements.
+
+        Args:
+            onnx_path: Path to ONNX model
+            output_path: Path to save quantized model (default: {onnx_path}-int8.onnx)
+            quantization_mode: "dynamic" (default) or "static"
+
+        Returns:
+            Path to quantized ONNX model
+        """
+        from onnxruntime.quantization import quantize_dynamic, QuantType
+
+        onnx_path = Path(onnx_path)
+        if output_path is None:
+            output_path = onnx_path.parent / f"{onnx_path.stem}-int8.onnx"
+        else:
+            output_path = Path(output_path)
+
+        logger.info("Quantizing ONNX model: %s → %s", onnx_path, output_path)
+
+        if quantization_mode == "dynamic":
+            quantize_dynamic(
+                model_input=str(onnx_path),
+                model_output=str(output_path),
+                weight_type=QuantType.QInt8,
+            )
+        else:
+            raise NotImplementedError("Static quantization requires calibration data")
+
+        logger.info("Quantized model saved: %s", output_path)
+        return output_path
 
     # Legacy methods for compatibility
     def convert_to_onnx(self, output_path: str | Path, **kwargs) -> Path:

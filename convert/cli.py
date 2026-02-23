@@ -55,7 +55,13 @@ def cli():
     type=click.Path(exists=True),
     help="Path to source model (for YOLO)",
 )
-def convert(model, format, config, output_dir, model_path):
+@click.option(
+    "--device",
+    type=click.Choice(["auto", "cuda", "cpu"]),
+    default="auto",
+    help="Device to use for model loading (auto=detect CUDA)",
+)
+def convert(model, format, config, output_dir, model_path, device):
     """Convert models to ONNX/TensorRT."""
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -142,7 +148,16 @@ def convert(model, format, config, output_dir, model_path):
     elif model == "qwen":
         from convert.converters import QwenConverter
 
-        converter = QwenConverter(use_fp16=True)
+        # Map CLI device option to converter parameter
+        device_param = None if device == "auto" else device
+
+        converter = QwenConverter(
+            use_fp16=True,
+            device=device_param,
+        )
+
+        # Log device being used
+        logger.info(f"Using device: {converter.device}")
 
         if format in ["onnx", "both"]:
             logger.info("Converting Qwen3-VL to ONNX (vision encoder + text decoder)...")
