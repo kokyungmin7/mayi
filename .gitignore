@@ -7,7 +7,7 @@ wheels/
 *.egg-info
 
 reference/
-output/
+./output/
 models/converted/
 
 # ai

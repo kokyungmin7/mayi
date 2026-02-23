@@ -74,6 +74,11 @@ class PersonDetector:
 
         return detections
 
+    def reset_tracker(self) -> None:
+        """Reset internal tracker state for a new video sequence."""
+        if hasattr(self._model, "predictor") and self._model.predictor is not None:
+            self._model.predictor = None
+
     @classmethod
     def from_config(cls, config: dict) -> PersonDetector:
         model_path = config.get("model_path", "models/yolo26n-pose.pt")

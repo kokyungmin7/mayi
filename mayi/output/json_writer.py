@@ -28,6 +28,7 @@ class JSONWriter:
         self,
         path: str | Path,
         *,
+        videos: list[dict] | None = None,
         video_path: str = "",
         camera_id: str = "cam0",
         fps: float = 30.0,
@@ -38,12 +39,14 @@ class JSONWriter:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
 
-        result: dict = {
-            "video": video_path,
-            "camera_id": camera_id,
-            "fps": fps,
-            "total_frames": total_frames,
-        }
+        result: dict = {}
+        if videos:
+            result["videos"] = videos
+        else:
+            result["video"] = video_path
+            result["camera_id"] = camera_id
+            result["fps"] = fps
+            result["total_frames"] = total_frames
 
         if anchor_bank is not None:
             persons = []

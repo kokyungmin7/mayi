@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import colorsys
 import logging
+import re
 from pathlib import Path
 
 import cv2
@@ -22,6 +24,18 @@ STATE_COLORS: dict[TrackState, tuple[int, int, int]] = {
     TrackState.EXPIRED: (128, 128, 128),
     TrackState.DEAD: (64, 64, 64),
 }
+
+_GOLDEN_RATIO = 0.618033988749895
+_NO_ID_COLOR = (180, 180, 180)
+
+
+def _id_to_color(global_id: str) -> tuple[int, int, int]:
+    """Generate a visually distinct BGR color from a global person ID."""
+    m = re.search(r"\d+", global_id)
+    idx = int(m.group()) if m else abs(hash(global_id))
+    hue = (idx * _GOLDEN_RATIO) % 1.0
+    r, g, b = colorsys.hsv_to_rgb(hue, 0.80, 0.95)
+    return (int(b * 255), int(g * 255), int(r * 255))
 
 SKELETON_CONNECTIONS: list[tuple[int, int]] = [
     (KeypointIndex.NOSE, KeypointIndex.LEFT_EYE),
@@ -83,6 +97,8 @@ class VideoWriter:
         track_manager: TrackManager,
         anchor_bank: AnchorBank | None,
         frame_idx: int,
+        *,
+        camera_id: str = "",
     ) -> np.ndarray:
         vis = frame.copy()
         scale = self._scale(vis)
@@ -98,13 +114,16 @@ class VideoWriter:
                 self._draw_detection(vis, det, track, track_manager, scale)
             elif self._draw_skeleton and det.keypoints is not None:
                 color = (
-                    STATE_COLORS.get(track.state, (255, 255, 255))
-                    if track else (255, 255, 255)
+                    _id_to_color(track.global_id)
+                    if track and track.global_id else _NO_ID_COLOR
                 )
                 _draw_skeleton(vis, det.keypoints, color, scale)
 
         if self._draw_status_bar:
-            self._draw_status(vis, frame_idx, track_manager, anchor_bank, scale)
+            self._draw_status(
+                vis, frame_idx, track_manager, anchor_bank, scale,
+                camera_id=camera_id,
+            )
 
         return vis
 
@@ -135,7 +154,10 @@ class VideoWriter:
         scale: float,
     ) -> None:
         if track is not None:
-            color = STATE_COLORS.get(track.state, (255, 255, 255))
+            color = (
+                _id_to_color(track.global_id)
+                if track.global_id else _NO_ID_COLOR
+            )
             label_id = track.global_id or "?"
             label = f"{label_id} [{track.state.value}]"
 
@@ -148,7 +170,7 @@ class VideoWriter:
             if match and match.matched and track.state == TrackState.ACTIVE:
                 label += f" sim:{match.similarity:.2f}"
         else:
-            color = (255, 255, 255)
+            color = _NO_ID_COLOR
             label = "no-track"
 
         x1, y1, x2, y2 = (int(v) for v in det.bbox)
@@ -181,6 +203,8 @@ class VideoWriter:
         tm: TrackManager,
         anchor_bank: AnchorBank | None,
         scale: float,
+        *,
+        camera_id: str = "",
     ) -> None:
         h, w = frame.shape[:2]
         bar_h = int(32 * scale)
@@ -192,7 +216,9 @@ class VideoWriter:
         cv2.addWeighted(overlay, 0.6, frame, 0.4, 0, frame)
 
         persons = anchor_bank.size if anchor_bank else "N/A"
+        cam_label = f"Cam: {camera_id}  |  " if camera_id else ""
         text = (
+            f"{cam_label}"
             f"Frame: {frame_idx}  |  "
             f"Active: {tm.active_count}  |  "
             f"Pending: {tm.pending_count}  |  "
