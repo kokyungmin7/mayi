@@ -150,49 +150,32 @@ class QwenConverter:
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         logger.info("Exporting vision encoder (opset=%d)...", opset_version)
-        logger.info("Note: grid_thw will be calculated dynamically from image dimensions")
-        logger.info("Assuming patch_size=16 (Qwen3-VL default)")
+        logger.info("NOTE: This exports the Vision Transformer only (not the image processor).")
+        logger.info("You must use Qwen3VLProcessor to preprocess images before ONNX inference.")
+        logger.info("Input: patch_embeddings [num_patches, 1536] + grid_thw [1, 3]")
+        logger.info("Output: vision_features [num_patches, 1152]")
 
-        # Wrapper for vision encoder
+        # Wrapper for vision encoder (Vision Transformer only)
         class VisionEncoderWrapper(torch.nn.Module):
             def __init__(self, model):
                 super().__init__()
                 self.model = model
                 self.vision_model = model.model.visual  # Qwen3-VL vision component
 
-            def forward(self, pixel_values):
-                """Extract vision features from images.
+            def forward(self, hidden_states, grid_thw):
+                """Vision Transformer forward pass.
 
                 Args:
-                    pixel_values: Tensor of shape (batch, channels, height, width)
+                    hidden_states: Tensor of shape (num_patches, embed_dim=1536)
+                                   Output from Qwen3VLProcessor's pixel_values
+                    grid_thw: Tensor of shape (batch, 3) - [temporal, height, width]
+                              Output from Qwen3VLProcessor's image_grid_thw
 
                 Returns:
-                    vision_embeds: Tensor of shape (batch, num_patches, hidden_dim)
+                    vision_embeds: Tensor of shape (num_patches, hidden_size=1152)
                 """
-                # Calculate grid_thw from image dimensions
-                # For Qwen3-VL: patch_size=16, temporal_patch_size=2 (for images, t=1)
-                batch_size = pixel_values.shape[0]
-                spatial_size = pixel_values.shape[-1]  # Assuming square images
-                patch_size = 16  # Qwen3-VL standard patch size
-
-                # Grid dimensions: [temporal, height, width]
-                # temporal=1 for static images (not video)
-                grid_h = spatial_size // patch_size
-                grid_w = spatial_size // patch_size
-                grid_t = 1
-
-                # Create grid_thw tensor: shape (batch_size, 3)
-                grid_thw = torch.tensor(
-                    [[grid_t, grid_h, grid_w]] * batch_size,
-                    dtype=torch.long,
-                    device=pixel_values.device,
-                )
-
-                # Note: vision_model.forward() signature is:
-                #   forward(hidden_states, grid_thw, **kwargs)
-                # but "hidden_states" actually accepts pixel_values
-                # (internally converted via patch_embed)
-                vision_outputs = self.vision_model(pixel_values, grid_thw=grid_thw)
+                # Forward through vision transformer
+                vision_outputs = self.vision_model(hidden_states, grid_thw=grid_thw)
 
                 # Return vision hidden states
                 if hasattr(vision_outputs, "last_hidden_state"):
@@ -205,31 +188,46 @@ class QwenConverter:
         wrapped_model = VisionEncoderWrapper(self._model)
         wrapped_model.eval()
 
-        # Create dummy input
-        dummy_image = torch.randn(1, 3, image_size, image_size).to(self.device)
+        # Create dummy inputs matching Qwen3VLProcessor output format
+        # For 224x224 image: 16x16 patches = 256, embed_dim = 1536
+        # Note: image_size parameter is used for reference, but actual patches depend on processor
+        # Standard sizes: 224→256 patches, 384→576 patches, 512→1024 patches
+        patch_grid_size = image_size // 16  # 224→14, but processor resizes to 256→16
+        if image_size == 224:
+            patch_grid_size = 16  # Processor resizes 224→256
+        num_patches = patch_grid_size * patch_grid_size
+        embed_dim = 1536  # Qwen3-VL patch embedding dimension
+
+        dummy_hidden_states = torch.randn(num_patches, embed_dim).to(self.device)
+        dummy_grid_thw = torch.tensor(
+            [[1, patch_grid_size, patch_grid_size]], dtype=torch.long
+        ).to(self.device)
+
         if self.use_fp16:
-            dummy_image = dummy_image.half()
+            dummy_hidden_states = dummy_hidden_states.half()
+
+        logger.info(
+            f"Using dummy inputs: hidden_states={dummy_hidden_states.shape}, "
+            f"grid_thw={dummy_grid_thw.tolist()}"
+        )
 
         # Dynamic axes
         dynamic_axes = {
-            "pixel_values": {
-                0: "batch_size",
-                2: "height",
-                3: "width",
-            },
-            "vision_embeds": {0: "batch_size"},
+            "hidden_states": {0: "num_patches"},
+            "grid_thw": {},  # Fixed shape [1, 3]
+            "vision_embeds": {0: "num_patches"},
         }
 
         # Export to ONNX
-        # Note: Using dynamo=False for legacy exporter to handle dynamic grid_thw
+        # Note: Using dynamo=False for legacy exporter
         torch.onnx.export(
             wrapped_model,
-            dummy_image,
+            (dummy_hidden_states, dummy_grid_thw),
             str(output_path),
             export_params=True,
             opset_version=opset_version,
             do_constant_folding=True,
-            input_names=["pixel_values"],
+            input_names=["hidden_states", "grid_thw"],
             output_names=["vision_embeds"],
             dynamic_axes=dynamic_axes,
             dynamo=False,  # Use legacy TorchScript-based exporter
