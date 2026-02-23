@@ -150,6 +150,8 @@ class QwenConverter:
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         logger.info("Exporting vision encoder (opset=%d)...", opset_version)
+        logger.info("Note: grid_thw will be calculated dynamically from image dimensions")
+        logger.info("Assuming patch_size=16 (Qwen3-VL default)")
 
         # Wrapper for vision encoder
         class VisionEncoderWrapper(torch.nn.Module):
@@ -159,9 +161,38 @@ class QwenConverter:
                 self.vision_model = model.model.visual  # Qwen3-VL vision component
 
             def forward(self, pixel_values):
-                """Extract vision features from images."""
-                # Get vision embeddings
-                vision_outputs = self.vision_model(pixel_values)
+                """Extract vision features from images.
+
+                Args:
+                    pixel_values: Tensor of shape (batch, channels, height, width)
+
+                Returns:
+                    vision_embeds: Tensor of shape (batch, num_patches, hidden_dim)
+                """
+                # Calculate grid_thw from image dimensions
+                # For Qwen3-VL: patch_size=16, temporal_patch_size=2 (for images, t=1)
+                batch_size = pixel_values.shape[0]
+                spatial_size = pixel_values.shape[-1]  # Assuming square images
+                patch_size = 16  # Qwen3-VL standard patch size
+
+                # Grid dimensions: [temporal, height, width]
+                # temporal=1 for static images (not video)
+                grid_h = spatial_size // patch_size
+                grid_w = spatial_size // patch_size
+                grid_t = 1
+
+                # Create grid_thw tensor: shape (batch_size, 3)
+                grid_thw = torch.tensor(
+                    [[grid_t, grid_h, grid_w]] * batch_size,
+                    dtype=torch.long,
+                    device=pixel_values.device,
+                )
+
+                # Note: vision_model.forward() signature is:
+                #   forward(hidden_states, grid_thw, **kwargs)
+                # but "hidden_states" actually accepts pixel_values
+                # (internally converted via patch_embed)
+                vision_outputs = self.vision_model(pixel_values, grid_thw=grid_thw)
 
                 # Return vision hidden states
                 if hasattr(vision_outputs, "last_hidden_state"):
@@ -181,7 +212,11 @@ class QwenConverter:
 
         # Dynamic axes
         dynamic_axes = {
-            "pixel_values": {0: "batch_size"},
+            "pixel_values": {
+                0: "batch_size",
+                2: "height",
+                3: "width",
+            },
             "vision_embeds": {0: "batch_size"},
         }
 
