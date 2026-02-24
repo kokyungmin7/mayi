@@ -11,14 +11,15 @@ from mayi.vlm.analyzer import VLMAnalyzer, _parse_json
 logger = logging.getLogger(__name__)
 
 _VERIFY_PROMPT = """\
-You are a re-identification expert. Do IMAGE 1 and IMAGE 2 show the same person?
-Clothing color/pattern is the strongest signal. One clear mismatch = likely different.
-Ignore minor angle or lighting differences (e.g., navy may look black).
-Set same_person=true ONLY if confidence >= 0.65.
+Same person in both images? Output ONLY JSON, no explanation.
 
-Reply with ONLY valid JSON, no other text:
-{"same_person":false,"confidence":0.00,"reason":"<1 sentence>"}
-."""
+Example outputs:
+{"same_person":false,"confidence":0.15,"reason":"different clothing colors"}
+{"same_person":true,"confidence":0.80,"reason":"same jacket and pants"}
+
+Rules: Focus on clothing color/pattern. One clear mismatch = different. Set same_person=true ONLY if confidence >= 0.65.
+
+JSON output:"""
 
 
 class VLMVerifier:
@@ -31,7 +32,7 @@ class VLMVerifier:
         self,
         analyzer: VLMAnalyzer,
         max_retries: int = 2,
-        max_new_tokens: int | None = None,
+        max_new_tokens: int = 64,
     ) -> None:
         self._analyzer = analyzer
         self._max_retries = max_retries
@@ -99,5 +100,5 @@ class VLMVerifier:
         return cls(
             analyzer=analyzer,
             max_retries=config.get("max_retries", 2),
-            max_new_tokens=verification.get("max_new_tokens"),
+            max_new_tokens=verification.get("max_new_tokens", 64),
         )
