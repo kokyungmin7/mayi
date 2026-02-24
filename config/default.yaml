@@ -21,7 +21,7 @@ conditions:
 
 tracking:
   max_pending_frames: 90
-  max_lost_frames: 150
+  max_lost_frames: 2000
   consistency_check_interval: 60
   consistency_threshold: 0.5
 
