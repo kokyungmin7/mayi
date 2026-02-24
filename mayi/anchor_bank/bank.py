@@ -95,6 +95,43 @@ class AnchorBank:
             candidate_similarities=similarities,
         )
 
+    def search_among(
+        self,
+        embedding: np.ndarray,
+        global_ids: list[str],
+        threshold: float,
+    ) -> MatchResult:
+        """Search for a match only among the specified global IDs."""
+        if not global_ids:
+            return MatchResult(matched=False)
+
+        similarities: dict[str, float] = {}
+        best_id: str | None = None
+        best_sim: float = -1.0
+
+        for gid in global_ids:
+            entry = self._entries.get(gid)
+            if entry is None or entry.representative_embedding is None:
+                continue
+            sim = float(np.dot(embedding, entry.representative_embedding))
+            similarities[gid] = sim
+            if sim > best_sim:
+                best_sim = sim
+                best_id = gid
+
+        if best_id is not None and best_sim >= threshold:
+            return MatchResult(
+                matched=True,
+                global_id=best_id,
+                similarity=best_sim,
+                candidate_similarities=similarities,
+            )
+        return MatchResult(
+            matched=False,
+            similarity=best_sim if best_sim > -1 else 0.0,
+            candidate_similarities=similarities,
+        )
+
     # ------------------------------------------------------------------
     # Updates
     # ------------------------------------------------------------------

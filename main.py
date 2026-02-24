@@ -43,8 +43,7 @@ def build_argparser() -> argparse.ArgumentParser:
     )
     vis.add_argument(
         "--output-video", type=str, default=None,
-        help="Save annotated result video to this path "
-             "(suffixed per camera when multiple videos)",
+        help="Save annotated result video to this path",
     )
     vis.add_argument(
         "--output-json", type=str, default=None,
@@ -120,6 +119,10 @@ def main() -> None:
     total_frames_all = 0
     user_quit = False
 
+    video_writer: VideoWriter | None = None
+    output_frame_size: tuple[int, int] | None = None
+    output_fps: float | None = None
+
     for vid_idx, video_path in enumerate(video_paths):
         if user_quit:
             break
@@ -155,24 +158,18 @@ def main() -> None:
         w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
-        # --- Video writer (per video — resolution may differ) ---
-        video_writer: VideoWriter | None = None
-        if args.output_video or args.show:
-            out_path: str | None = None
-            if args.output_video:
-                p = Path(args.output_video)
-                if len(video_paths) > 1:
-                    out_path = str(p.parent / f"{p.stem}_{camera_id}{p.suffix}")
-                else:
-                    out_path = args.output_video
+        # --- Video writer (single file across all videos) ---
+        if (args.output_video or args.show) and video_writer is None:
             video_writer = VideoWriter(
-                output_path=out_path,
+                output_path=args.output_video,
                 fps=fps,
                 frame_size=(w, h),
                 draw_bbox=config.get("output", {}).get("draw_bbox", True),
                 draw_skeleton=True,
                 draw_status_bar=config.get("output", {}).get("draw_status", True),
             )
+            output_frame_size = (w, h)
+            output_fps = fps
 
         log.info(
             "[%d/%d] Processing %s (%s, %dx%d, %.1f fps, %d frames)",
@@ -200,7 +197,19 @@ def main() -> None:
                     track_manager, anchor_bank, frame_idx,
                     camera_id=camera_id,
                 )
-                video_writer.write_frame(vis)
+                if args.output_video and output_frame_size is not None:
+                    if (w, h) != output_frame_size:
+                        if frame_idx == 0:
+                            log.info(
+                                "Resizing %dx%d -> %dx%d for %s",
+                                w, h, output_frame_size[0], output_frame_size[1],
+                                camera_id,
+                            )
+                        vis = cv2.resize(
+                            vis,
+                            (output_frame_size[0], output_frame_size[1]),
+                        )
+                    video_writer.write_frame(vis)
 
                 if args.show:
                     cv2.imshow("MAYI - Person Re-ID", vis)
@@ -220,8 +229,6 @@ def main() -> None:
             frame_idx += 1
 
         cap.release()
-        if video_writer is not None:
-            video_writer.release()
 
         elapsed = time.time() - t_start
         log.info(
@@ -240,6 +247,8 @@ def main() -> None:
 
     if args.show:
         cv2.destroyAllWindows()
+    if video_writer is not None:
+        video_writer.release()
 
     # --- Save JSON ---
     if args.output_json:

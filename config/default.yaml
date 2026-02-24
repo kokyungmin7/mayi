@@ -30,9 +30,14 @@ reid:
   model: "MarketaJu/siglip2-person-description-reid"
   onnx_model_path: "models/converted/siglip2-reid-optimized.onnx"
   tensorrt_engine_path: "models/converted/siglip2-reid.engine"
-  similarity_threshold: 0.7
+  similarity_threshold: 0.5
   confidence_threshold: 0.85
   device: null  # auto-detect (cuda > mps > cpu)
+  metadata_rematch_threshold: 0.3
+  # metadata_rematch_mode: "embedding"  # "embedding" or "vlm"
+  metadata_rematch_mode: "vlm"  # "embedding" or "vlm"
+  metadata_rematch_max_vlm_candidates: 3
+  metadata_filter_fields: [gender, top_color, bottom_color]
   failure_detectors:
     enabled: [embedding_collapse, speed_jump]
     embedding_collapse:

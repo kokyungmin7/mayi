@@ -58,8 +58,20 @@ class TrackManager:
         self._max_lost_frames: int = config.get("max_lost_frames", 150)
 
         rc = reid_config or {}
-        self._similarity_threshold: float = rc.get("similarity_threshold", 0.7)
+        self._similarity_threshold: float = rc.get("similarity_threshold", 0.5)
         self._confidence_threshold: float = rc.get("confidence_threshold", 0.85)
+        self._metadata_rematch_threshold: float = rc.get(
+            "metadata_rematch_threshold", 0.3,
+        )
+        self._metadata_rematch_mode: str = rc.get(
+            "metadata_rematch_mode", "embedding",
+        )
+        self._metadata_rematch_max_vlm: int = rc.get(
+            "metadata_rematch_max_vlm_candidates", 3,
+        )
+        self._metadata_filter_fields: list[str] = rc.get(
+            "metadata_filter_fields", ["gender", "top_color", "bottom_color"],
+        )
 
         self._failure_pipeline = failure_pipeline
         self._consistency_monitor = consistency_monitor
@@ -520,6 +532,34 @@ class TrackManager:
             )
             return match.global_id
         else:
+            best_info = (
+                f"best={match.similarity:.3f}"
+                if match.candidate_similarities else "no candidates"
+            )
+            logger.info(
+                "[RE-ID] tid=%d embedding below threshold "
+                "(%s < %.2f) — trying metadata re-match (frame=%d)",
+                track.tracker_id, best_info,
+                self._similarity_threshold, det.frame_idx,
+            )
+
+            rematch_gid, metadata = self._try_metadata_rematch(
+                embedding, crop, det,
+            )
+
+            if rematch_gid is not None:
+                self._anchor_bank.add_embedding(rematch_gid, embedding)
+                self._anchor_bank.update_crop_if_better(
+                    rematch_gid, crop, report.overall_score,
+                    det.camera_id, det.frame_idx, det.bbox,
+                )
+                logger.info(
+                    "[RE-ID] tid=%d -> MATCHED %s via metadata re-match "
+                    "(frame=%d)",
+                    track.tracker_id, rematch_gid, det.frame_idx,
+                )
+                return rematch_gid
+
             gid = self._id_mapper.create_new_id()
             self._anchor_bank.register(
                 global_id=gid, crop_image=crop,
@@ -529,17 +569,25 @@ class TrackManager:
                 frame_idx=det.frame_idx,
                 bbox=det.bbox,
             )
-            best_info = (
-                f"best={match.similarity:.3f}"
-                if match.candidate_similarities else "no candidates"
-            )
             self._emit("reid_new", det.frame_idx, track.tracker_id, gid)
-            self._request_vlm_metadata(gid)
-            logger.info(
-                "[RE-ID] tid=%d -> NEW %s (%s < threshold %.2f, frame=%d)",
-                track.tracker_id, gid, best_info,
-                self._similarity_threshold, det.frame_idx,
-            )
+
+            if metadata is not None:
+                self._anchor_bank.set_metadata(gid, metadata)
+                logger.info(
+                    "[RE-ID] tid=%d -> NEW %s (embedding %s < %.2f, "
+                    "metadata re-match also failed, "
+                    "pre-extracted metadata set, frame=%d)",
+                    track.tracker_id, gid, best_info,
+                    self._similarity_threshold, det.frame_idx,
+                )
+            else:
+                self._request_vlm_metadata(gid)
+                logger.info(
+                    "[RE-ID] tid=%d -> NEW %s (%s < threshold %.2f, "
+                    "frame=%d)",
+                    track.tracker_id, gid, best_info,
+                    self._similarity_threshold, det.frame_idx,
+                )
             return gid
 
     def _resolve_and_activate(
@@ -620,6 +668,277 @@ class TrackManager:
                 track.tracker_id, match.global_id, conf, det.frame_idx,
             )
         return is_same
+
+    # ------------------------------------------------------------------
+    # Metadata-based re-matching
+    # ------------------------------------------------------------------
+
+    def _try_metadata_rematch(
+        self,
+        embedding: np.ndarray,
+        crop: np.ndarray,
+        det: Detection,
+    ) -> tuple[str | None, PersonMetadata | None]:
+        """Attempt re-match via VLM metadata when embedding search fails.
+
+        1. Extract metadata from the current crop via VLM.
+        2. Filter anchor_bank for anchors with matching appearance.
+        3. Re-compare embedding against filtered candidates with a
+           lower threshold.
+
+        Returns ``(matched_global_id, extracted_metadata)``.
+        Both are ``None`` when VLM is unavailable.
+        ``matched_global_id`` is ``None`` if no candidate passes.
+        ``extracted_metadata`` is returned even on match failure so the
+        caller can set it on a newly created anchor without a redundant
+        VLM call.
+        """
+        if self._vlm_analyzer is None or self._anchor_bank is None:
+            return None, None
+
+        tid = det.tracker_id or 0
+
+        # --- Step 1: Extract metadata for current person ---
+        try:
+            raw = self._vlm_analyzer.analyze_person(crop)
+        except Exception:
+            logger.exception(
+                "[METADATA-REMATCH] tid=%d VLM inference failed (frame=%d)",
+                tid, det.frame_idx,
+            )
+            return None, None
+
+        if raw is None:
+            logger.info(
+                "[METADATA-REMATCH] tid=%d VLM returned None — "
+                "skipping metadata re-match (frame=%d)",
+                tid, det.frame_idx,
+            )
+            return None, None
+
+        metadata = PersonMetadata(
+            gender=raw.get("gender"),
+            top_color=raw.get("top_color"),
+            bottom_color=raw.get("bottom_color"),
+            top_type=raw.get("top_type"),
+            bottom_type=raw.get("bottom_type"),
+        )
+        logger.info(
+            "[METADATA-REMATCH] tid=%d metadata extracted: "
+            "gender=%s, top=%s %s, bottom=%s %s (frame=%d)",
+            tid,
+            metadata.gender, metadata.top_color, metadata.top_type,
+            metadata.bottom_color, metadata.bottom_type,
+            det.frame_idx,
+        )
+
+        # --- Step 2: Build filter and query anchor bank ---
+        filter_kwargs: dict[str, str] = {}
+        for field in self._metadata_filter_fields:
+            value = getattr(metadata, field, None)
+            if value is not None:
+                filter_kwargs[field] = value
+
+        if not filter_kwargs:
+            logger.info(
+                "[METADATA-REMATCH] tid=%d no usable metadata fields "
+                "for filtering — skipping (frame=%d)",
+                tid, det.frame_idx,
+            )
+            return None, metadata
+
+        logger.info(
+            "[METADATA-REMATCH] tid=%d filtering anchor bank by: %s",
+            tid, filter_kwargs,
+        )
+
+        candidates = self._anchor_bank.filter_by_metadata(**filter_kwargs)
+
+        if not candidates:
+            logger.info(
+                "[METADATA-REMATCH] tid=%d no anchors with matching "
+                "metadata (frame=%d)",
+                tid, det.frame_idx,
+            )
+            return None, metadata
+
+        logger.info(
+            "[METADATA-REMATCH] tid=%d found %d candidate(s): %s",
+            tid, len(candidates), candidates,
+        )
+
+        # --- Step 3: Re-match among filtered candidates ---
+        use_vlm = (
+            self._metadata_rematch_mode == "vlm"
+            and self._vlm_verifier is not None
+        )
+
+        if use_vlm:
+            return self._metadata_rematch_vlm(
+                crop, embedding, candidates, filter_kwargs,
+                metadata, tid, det,
+            )
+
+        return self._metadata_rematch_embedding(
+            embedding, candidates, filter_kwargs,
+            metadata, tid, det,
+        )
+
+    # ------------------------------------------------------------------
+
+    def _metadata_rematch_embedding(
+        self,
+        embedding: np.ndarray,
+        candidates: list[str],
+        filter_kwargs: dict[str, str],
+        metadata: PersonMetadata,
+        tid: int,
+        det: Detection,
+    ) -> tuple[str | None, PersonMetadata | None]:
+        """Step 3 — embedding mode: re-compare with lower threshold."""
+        rematch = self._anchor_bank.search_among(
+            embedding, candidates, self._metadata_rematch_threshold,
+        )
+
+        if rematch.candidate_similarities:
+            sims_str = ", ".join(
+                f"{k}={v:.3f}" for k, v in
+                sorted(
+                    rematch.candidate_similarities.items(),
+                    key=lambda x: x[1], reverse=True,
+                )
+            )
+            logger.info(
+                "[METADATA-REMATCH] tid=%d similarities among "
+                "filtered: [%s]",
+                tid, sims_str,
+            )
+
+        if rematch.matched:
+            self._match_results[tid] = rematch
+            self._emit(
+                "reid_metadata_rematch", det.frame_idx, tid,
+                rematch.global_id,
+                {
+                    "mode": "embedding",
+                    "similarity": round(rematch.similarity, 3),
+                    "filter": filter_kwargs,
+                    "candidates": len(candidates),
+                },
+            )
+            logger.info(
+                "[METADATA-REMATCH] tid=%d -> MATCHED %s via embedding "
+                "re-match (sim=%.3f, threshold=%.2f, frame=%d)",
+                tid, rematch.global_id, rematch.similarity,
+                self._metadata_rematch_threshold, det.frame_idx,
+            )
+            return rematch.global_id, metadata
+
+        logger.info(
+            "[METADATA-REMATCH] tid=%d no match among %d filtered "
+            "candidate(s) (best=%.3f < threshold=%.2f, frame=%d)",
+            tid, len(candidates), rematch.similarity,
+            self._metadata_rematch_threshold, det.frame_idx,
+        )
+        return None, metadata
+
+    def _metadata_rematch_vlm(
+        self,
+        crop: np.ndarray,
+        embedding: np.ndarray,
+        candidates: list[str],
+        filter_kwargs: dict[str, str],
+        metadata: PersonMetadata,
+        tid: int,
+        det: Detection,
+    ) -> tuple[str | None, PersonMetadata | None]:
+        """Step 3 — VLM mode: visually compare crops instead of embeddings."""
+        ranked = self._anchor_bank.search_among(
+            embedding, candidates, threshold=-1.0,
+        )
+        sorted_ids = sorted(
+            ranked.candidate_similarities,
+            key=ranked.candidate_similarities.get,
+            reverse=True,
+        )[:self._metadata_rematch_max_vlm]
+
+        if ranked.candidate_similarities:
+            sims_str = ", ".join(
+                f"{k}={v:.3f}"
+                for k in sorted_ids
+                if (v := ranked.candidate_similarities.get(k)) is not None
+            )
+            logger.info(
+                "[METADATA-REMATCH-VLM] tid=%d top-%d candidates by "
+                "embedding: [%s]",
+                tid, self._metadata_rematch_max_vlm, sims_str,
+            )
+
+        for rank, gid in enumerate(sorted_ids, 1):
+            anchor = self._anchor_bank.get(gid)
+            if anchor is None or anchor.crop_image is None:
+                logger.info(
+                    "[METADATA-REMATCH-VLM] tid=%d skipping %s "
+                    "(no crop available)",
+                    tid, gid,
+                )
+                continue
+
+            sim = ranked.candidate_similarities.get(gid, 0.0)
+            logger.info(
+                "[METADATA-REMATCH-VLM] tid=%d verifying vs %s "
+                "(%d/%d, embed_sim=%.3f, frame=%d)",
+                tid, gid, rank, len(sorted_ids), sim, det.frame_idx,
+            )
+
+            is_same, conf = self._vlm_verifier.verify(crop, anchor.crop_image)
+
+            self._emit(
+                "vlm_metadata_rematch_verify", det.frame_idx, tid, gid,
+                {
+                    "same_person": is_same,
+                    "confidence": round(conf, 3),
+                    "embedding_similarity": round(sim, 3),
+                    "rank": rank,
+                },
+            )
+
+            if is_same:
+                logger.info(
+                    "[METADATA-REMATCH-VLM] tid=%d -> MATCHED %s "
+                    "(VLM confirmed, conf=%.2f, embed_sim=%.3f, "
+                    "frame=%d)",
+                    tid, gid, conf, sim, det.frame_idx,
+                )
+                self._match_results[tid] = MatchResult(
+                    matched=True, global_id=gid, similarity=sim,
+                    candidate_similarities=ranked.candidate_similarities,
+                )
+                self._emit(
+                    "reid_metadata_rematch", det.frame_idx, tid, gid,
+                    {
+                        "mode": "vlm",
+                        "vlm_confidence": round(conf, 3),
+                        "embedding_similarity": round(sim, 3),
+                        "filter": filter_kwargs,
+                        "candidates": len(candidates),
+                        "vlm_attempts": rank,
+                    },
+                )
+                return gid, metadata
+
+            logger.info(
+                "[METADATA-REMATCH-VLM] tid=%d vs %s REJECTED "
+                "(conf=%.2f, frame=%d)",
+                tid, gid, conf, det.frame_idx,
+            )
+
+        logger.info(
+            "[METADATA-REMATCH-VLM] tid=%d no match after VLM "
+            "verification of %d candidate(s) (frame=%d)",
+            tid, len(sorted_ids), det.frame_idx,
+        )
+        return None, metadata
 
     # ------------------------------------------------------------------
     # VLM metadata extraction
