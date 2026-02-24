@@ -11,8 +11,16 @@ from mayi.vlm.analyzer import VLMAnalyzer, _parse_json
 logger = logging.getLogger(__name__)
 
 _VERIFY_PROMPT = """\
-Compare these two person images. Are they the same person?
-Consider: clothing, body shape, hair, accessories.
+You are a CCTV re-identification expert. Determine if IMAGE 1 and IMAGE 2 show the same person.
+Images may differ in camera angle, lighting, or timestamp.
+
+ANALYSIS ORDER (follow strictly):
+1. CLOTHING [highest priority]: upper/lower color+pattern, shoes, accessories — mismatch = strong "different" signal
+2. BODY BUILD: height-width ratio, shoulder width, body type
+3. HAIR: color, length, style
+4. CONTRADICTIONS: list any mismatches found — even one clear contradiction lowers confidence heavily
+5. CROSS-VIEW: account for angle/lighting before finalizing (e.g., navy may appear black under harsh light)
+
 Return ONLY a JSON object:
 {"same_person": true/false, "confidence": 0.0-1.0, "reason": "brief explanation"}
 Output ONLY JSON. No explanation."""
