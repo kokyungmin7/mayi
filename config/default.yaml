@@ -37,7 +37,7 @@ reid:
   # metadata_rematch_mode: "embedding"  # "embedding" or "vlm"
   metadata_rematch_mode: "vlm"  # "embedding" or "vlm"
   metadata_rematch_max_vlm_candidates: 3
-  metadata_filter_fields: [gender, top_color, bottom_color]
+  metadata_filter_fields: [gender]
   failure_detectors:
     enabled: [embedding_collapse, speed_jump]
     embedding_collapse:
