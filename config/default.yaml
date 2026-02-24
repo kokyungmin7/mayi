@@ -52,7 +52,7 @@ vlm:
   max_retries: 2
   metadata_fields: [gender, top_color, bottom_color, top_type, bottom_type]
   verification:
-    metadata_filter_fields: [gender, top_color, bottom_color]
+    metadata_filter_fields: [gender]
     max_candidates: 5
 
 output:
