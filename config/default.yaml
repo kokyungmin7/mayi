@@ -54,6 +54,7 @@ vlm:
   verification:
     metadata_filter_fields: [gender]
     max_candidates: 5
+    max_new_tokens: 256
 
 output:
   draw_bbox: true

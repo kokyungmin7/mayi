@@ -97,10 +97,16 @@ class VLMAnalyzer:
     # Core inference (shared by analyzer & verifier)
     # ------------------------------------------------------------------
 
-    def _run_inference(self, messages: list[dict]) -> str:
+    def _run_inference(
+        self,
+        messages: list[dict],
+        max_new_tokens: int | None = None,
+    ) -> str:
         from qwen_vl_utils import process_vision_info
 
         self.load()
+
+        tokens = max_new_tokens if max_new_tokens is not None else self._max_new_tokens
 
         text = self._processor.apply_chat_template(
             messages, tokenize=False, add_generation_prompt=True,
@@ -130,7 +136,7 @@ class VLMAnalyzer:
 
         with torch.inference_mode():
             generated_ids = self._model.generate(
-                **inputs, max_new_tokens=self._max_new_tokens,
+                **inputs, max_new_tokens=tokens,
             )
 
         trimmed = [

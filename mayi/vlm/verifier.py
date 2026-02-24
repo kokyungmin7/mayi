@@ -11,19 +11,14 @@ from mayi.vlm.analyzer import VLMAnalyzer, _parse_json
 logger = logging.getLogger(__name__)
 
 _VERIFY_PROMPT = """\
-You are a CCTV re-identification expert. Determine if IMAGE 1 and IMAGE 2 show the same person.
-Images may differ in camera angle, lighting, or timestamp.
+You are a re-identification expert. Do IMAGE 1 and IMAGE 2 show the same person?
+Clothing color/pattern is the strongest signal. One clear mismatch = likely different.
+Ignore minor angle or lighting differences (e.g., navy may look black).
+Set same_person=true ONLY if confidence >= 0.65.
 
-ANALYSIS ORDER (follow strictly):
-1. CLOTHING [highest priority]: upper/lower color+pattern, shoes, accessories — mismatch = strong "different" signal
-2. BODY BUILD: height-width ratio, shoulder width, body type
-3. HAIR: color, length, style
-4. CONTRADICTIONS: list any mismatches found — even one clear contradiction lowers confidence heavily
-5. CROSS-VIEW: account for angle/lighting before finalizing (e.g., navy may appear black under harsh light)
-
-Return ONLY a JSON object:
-{"same_person": true/false, "confidence": 0.0-1.0, "reason": "brief explanation"}
-Output ONLY JSON. No explanation."""
+Reply with ONLY valid JSON, no other text:
+{"same_person":false,"confidence":0.00,"reason":"<1 sentence>"}
+."""
 
 
 class VLMVerifier:
@@ -36,9 +31,11 @@ class VLMVerifier:
         self,
         analyzer: VLMAnalyzer,
         max_retries: int = 2,
+        max_new_tokens: int | None = None,
     ) -> None:
         self._analyzer = analyzer
         self._max_retries = max_retries
+        self._max_new_tokens = max_new_tokens
 
     def verify(
         self,
@@ -68,7 +65,9 @@ class VLMVerifier:
 
         for attempt in range(self._max_retries + 1):
             try:
-                raw = self._analyzer._run_inference(messages)
+                raw = self._analyzer._run_inference(
+                    messages, max_new_tokens=self._max_new_tokens,
+                )
                 result = _parse_json(raw)
 
                 if result is None:
@@ -96,7 +95,9 @@ class VLMVerifier:
 
     @classmethod
     def from_config(cls, config: dict, analyzer: VLMAnalyzer) -> VLMVerifier:
+        verification = config.get("verification", {})
         return cls(
             analyzer=analyzer,
             max_retries=config.get("max_retries", 2),
+            max_new_tokens=verification.get("max_new_tokens"),
         )
